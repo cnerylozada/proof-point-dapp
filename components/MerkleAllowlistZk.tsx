@@ -72,7 +72,10 @@ export const MerkleAllowlistZk = () => {
     return witness;
   };
 
-  const onOffChainValidation = async (allowList: string[], wallet: string) => {
+  const verifyMembershipOffChain = async (
+    allowList: string[],
+    wallet: string,
+  ) => {
     try {
       const merkleProof = buildMerkleProof(allowList, wallet);
       const witness = await generateWitness(merkleProof);
@@ -91,7 +94,7 @@ export const MerkleAllowlistZk = () => {
       <div>
         <button
           onClick={async () => {
-            const isValid = await onOffChainValidation(
+            const isValid = await verifyMembershipOffChain(
               allowList,
               "0x89F9E866B3dDb6146244b618B828EBe398D69149",
             );
