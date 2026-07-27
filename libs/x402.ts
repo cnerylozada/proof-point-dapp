@@ -1,7 +1,9 @@
-import { facilitator } from "thirdweb/x402";
-import { thirdwebServerClient } from "./thirdweb-server";
+import { arbitrumSepolia } from "thirdweb/chains";
+import { getDefaultToken } from "thirdweb/react";
 
-export const thirdwebFacilitator = facilitator({
-  client: thirdwebServerClient,
-  serverWalletAddress: "0xae46cBf74de8DFaf199C958a711eB16b74c3CfCc",
-});
+export const PAYMENT_RECIPIENT =
+  "0xDE645d7DC8f33DbC92dd970d408A9f9cF50eCD1B" as const;
+
+export const PAYMENT_NETWORK = arbitrumSepolia;
+
+export const PAYMENT_TOKEN_ADDRESS = getDefaultToken(PAYMENT_NETWORK, "USDC")!;

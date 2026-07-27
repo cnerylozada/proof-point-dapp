@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import { useFetchWithPayment } from "thirdweb/react";
-import { thirdwebClient } from "@/libs/thirdweb";
-import { PAYMENT_TOKEN_ADDRESS } from "@/libs/x402-config";
+import { thirdwebClient } from "@/libs/thirdweb-client-side";
+import { PAYMENT_TOKEN_ADDRESS } from "@/libs/x402";
 
 export const PayPerView = () => {
   const { fetchWithPayment, isPending } = useFetchWithPayment(thirdwebClient);
@@ -12,8 +12,6 @@ export const PayPerView = () => {
   const handleApiCall = async () => {
     setError(null);
     try {
-      // Handle wallet connection, funding, and payment errors automatically
-      // Response is parsed as JSON by default
       const data = await fetchWithPayment("/api/paid-endpoint");
       setResult(data);
     } catch (err) {
@@ -27,7 +25,7 @@ export const PayPerView = () => {
       <div>{PAYMENT_TOKEN_ADDRESS.address}</div>
       <div>
         <button onClick={handleApiCall} disabled={isPending}>
-          {isPending ? "Loading..." : "Make Paid API Call (0.02 tokens)"}
+          {isPending ? "Loading..." : "Make Paid API Call (0.05 tokens)"}
         </button>
       </div>
       {error && <div style={{ color: "red" }}>{error}</div>}

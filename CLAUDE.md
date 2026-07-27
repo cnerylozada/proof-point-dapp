@@ -55,23 +55,41 @@ Proof Point is a demo app combining **thirdweb** for wallet/chain interaction wi
 
 `app/dashboard/page.tsx` currently contains prototype/scratch code (not yet a real feature) building a Poseidon-hashed incremental Merkle tree over a hardcoded wallet allowlist. Note: this page separately queries an ERC-20 balance on `sepolia` (via `libs/thirdweb.ts` + `thirdweb/extensions/erc20`), a different network than the `arbitrumSepolia` used for x402 payments — check which network is intended before extending this code.
 
-### Noir ZK allowlist membership proof
+### Noir ZK circuits
 
-`components/MerkleAllowlistZk.tsx` is a prototype proving allowlist membership with a Noir circuit instead of revealing the wallet/Merkle path on-chain:
+Circuit components live in `components/*Zk.tsx`, each pairing a compiled Noir circuit (`circuits/*.json`, output of `nargo compile`, imported directly as a JSON module — not fetched at runtime from `public/`) with the shared off-chain proving/verification helper `offChainValidation` in `libs/noir.ts`:
 
-- Off-chain (JS), a Poseidon-hashed `@zk-kit/imt` tree (`poseidon-lite` for `poseidon1`/`poseidon2`) is built over the allowlist, and a Merkle proof (`indexes`, `hash_path`, `root`) is derived for a given wallet — see `buildMerkleProof`.
-- The compiled circuit lives at `circuits/merkle_allowlist.json` (output of `nargo compile`) and is imported directly as a JSON module (`import merkle_allowlist from "../circuits/merkle_allowlist.json"`), not fetched at runtime from `public/`. It's cast `as unknown as CompiledCircuit` (from `@noir-lang/types`) because TS widens the JSON's literal union fields (e.g. `kind`, `visibility`) to plain `string`.
-- The Noir circuit itself (source not checked into this repo's `circuits/` dir) takes `main(raw_wallet: Field, indexes: Field, hash_path: [Field; 10], root: pub Field)`, hashes `raw_wallet` with Poseidon and checks tree membership against `root`. The `[Field; 10]` array length is the circuit's Merkle depth and **must match** the JS-side `MAX_DEPTH` constant in `buildMerkleProof` — both bound tree capacity to `2^depth` leaves.
-- `Noir.execute(inputs)` (`@noir-lang/noir_js`) runs the ACVM and enforces the circuit's constraints at witness-generation time — if the wallet isn't a member, this throws rather than producing a witness. A successfully-produced witness is therefore already proof the membership check passed; the subsequent `@aztec/bb.js` `UltraHonkBackend.generateProof`/`verifyProof` step only turns that witness into a checkable proof for a third-party verifier — it doesn't re-validate membership.
+```ts
+// libs/noir.ts
+export const offChainValidation = async (bytecode: string, witness: Uint8Array) => {
+  const barretenbergAPI = await Barretenberg.new();
+  const backend = new UltraHonkBackend(bytecode, barretenbergAPI);
+  const bbProof = await backend.generateProof(witness);
+  return backend.verifyProof(bbProof);
+};
+```
+
+`offChainValidation` is generic over any circuit — it just needs that circuit's `bytecode` (from its compiled JSON) and a witness. Each component is responsible for building its own circuit-specific inputs and calling `Noir.execute(inputs)` to get that witness, then passing `(circuit.bytecode, witness)` into `offChainValidation`.
+
+Current circuit components:
+
+- **`components/NotEqualZk.tsx`** — minimal example circuit, `circuits/not_equal.json`. Circuit: `fn main(x: Field, y: pub Field) { assert(x != y); }`. Wired into `app/page.tsx`.
+- **`components/MerkleAllowlistZk.tsx`** — proves allowlist membership with a Noir circuit instead of revealing the wallet/Merkle path on-chain, `circuits/merkle_allowlist.json`. Not currently imported/rendered anywhere (standalone prototype). Details:
+  - Off-chain (JS), a Poseidon-hashed `@zk-kit/imt` tree (`poseidon-lite` for `poseidon1`/`poseidon2`) is built over the allowlist, and a Merkle proof (`indexes`, `hash_path`, `root`) is derived for a given wallet — see `buildMerkleProof`.
+  - The circuit itself (source not checked into this repo's `circuits/` dir) takes `main(raw_wallet: Field, indexes: Field, hash_path: [Field; 10], root: pub Field)`, hashes `raw_wallet` with Poseidon and checks tree membership against `root`. The `[Field; 10]` array length is the circuit's Merkle depth and **must match** the JS-side `MAX_DEPTH` constant in `buildMerkleProof` — both bound tree capacity to `2^depth` leaves.
+
+For any circuit, `Noir.execute(inputs)` (`@noir-lang/noir_js`) runs the ACVM and enforces the circuit's constraints at witness-generation time — if a constraint (e.g. `assert(x != y)`, or Merkle membership) doesn't hold, this throws rather than producing a witness. A successfully-produced witness is therefore already proof the constraints passed; the subsequent `offChainValidation` (`@aztec/bb.js` `UltraHonkBackend.generateProof`/`verifyProof`) step only turns that witness into a checkable proof for a third-party verifier — it doesn't re-validate the underlying constraints. `Field` inputs accept `string | number | boolean`; values that originate as `bigint` (parsed wallet addresses, Poseidon hash outputs) need `.toString()` before being passed in, since JS `bigint` isn't itself a valid `Field` value — plain small numbers (like test fixtures `x`/`y` in `NotEqualZk`) don't need this.
+
+The JSON circuit import needs a `CompiledCircuit` cast — TS widens the JSON's literal union fields (e.g. `kind`, `visibility`) to plain `string`, so a bare `as CompiledCircuit` fails structurally (missing `function_locations` in `file_map`, etc.); use `as unknown as CompiledCircuit` (from `@noir-lang/types`).
 
 #### Toolchain version pinning (important)
 
-The compiled `circuits/*.json` artifact embeds the exact `noir_version` it was compiled with (check the `noir_version` field, or run `nargo --version`). The JS-side proving/execution stack **must match that exact prerelease**, or you'll hit deserialization errors at runtime (ACVM witness/circuit format and Barretenberg's msgpack proof format both change between beta/nightly releases):
+Every compiled `circuits/*.json` artifact embeds the exact `noir_version` it was compiled with (check the `noir_version` field, or run `nargo --version`) — all circuits in this repo are currently compiled with the same `1.0.0-beta.18` toolchain, but check each artifact's `noir_version` if that ever diverges. The JS-side proving/execution stack **must match that exact prerelease**, or you'll hit deserialization errors at runtime (ACVM witness/circuit format and Barretenberg's msgpack proof format both change between beta/nightly releases):
 
 - `@noir-lang/noir_js` (and its transitive `acvm_js`/`noirc_abi`/`types`) must match the circuit's embedded `noir_version` exactly.
 - `@aztec/bb.js` must match the `bb` CLI version used alongside that `nargo`/Noir toolchain (there's no dependency link between `noir_js` and `bb.js` — they're versioned independently and must be aligned manually).
 
-Current pin, matching the toolchain the checked-in circuit was compiled with:
+Current pin, matching the toolchain all checked-in circuits were compiled with:
 ```
 nargo/noirc 1.0.0-beta.18   ->  "@noir-lang/noir_js": "1.0.0-beta.18"  (package.json)
 bb           3.0.0-nightly.20260102  ->  "@aztec/bb.js": "3.0.0-nightly.20260102"  (package.json)
@@ -80,4 +98,4 @@ Verify locally with `nargo --version` and `bb --version`, and compare against th
 
 **Use exact pins (no `^`) for both packages.** A caret range on a prerelease version (e.g. `^1.0.0-beta.18`) is not a safe "at least this beta" constraint — npm resolves it against essentially all `1.0.0-*` prereleases, including later betas and nightlies, and will silently pull in an incompatible version. Confirm with `npm view "<pkg>@<range>" version` before trusting any prerelease range.
 
-If the circuit is ever recompiled with a newer `nargo`, update both pins together to match the new `noir_version`/`bb --version`, then reinstall.
+If any circuit is ever recompiled with a newer `nargo`, update both pins together to match the new `noir_version`/`bb --version`, then reinstall.
