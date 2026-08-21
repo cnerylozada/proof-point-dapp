@@ -1,13 +1,27 @@
 "use client";
 
+import { useState } from "react";
 import { poseidon1, poseidon2 } from "poseidon-lite";
 import { IMT, IMTNode } from "@zk-kit/imt";
 import { Noir } from "@noir-lang/noir_js";
 import type { CompiledCircuit } from "@noir-lang/types";
 import merkle_allowlist from "../circuits/merkle_allowlist.json";
-import { offChainValidation } from "@/libs/noir";
+import { generateOnChainProof, offChainValidation } from "@/libs/noir";
+import { OnChainProofParams } from "./OnChainProofParams";
+
+type OnChainProof = Awaited<ReturnType<typeof generateOnChainProof>>;
+
+// bb emits public inputs in the circuit's `pub` parameter order, so the labels
+// come straight from the compiled ABI rather than being hardcoded here.
+const publicInputNames = merkle_allowlist.abi.parameters
+  .filter((parameter) => parameter.visibility === "public")
+  .map((parameter) => parameter.name);
 
 export const MerkleAllowlistZk = () => {
+  const [onChainProof, setOnChainProof] = useState<OnChainProof | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [offChainFailed, setOffChainFailed] = useState(false);
+
   const allowList = [
     "0xDE645d7DC8f33DbC92dd970d408A9f9cF50eCD1B",
     "0x58Dc4256E7E5402cc1A88d9A63c640B1A3959722",
@@ -48,21 +62,24 @@ export const MerkleAllowlistZk = () => {
       indexes: proof.leafIndex,
       hash_path: proof.siblings.map((_) => _[0]),
       root: merklet.root,
+      topic_id: BigInt(Date.now()),
     };
   };
 
   const generateWitness = async (merkleProof: {
     raw_wallet: bigint;
     indexes: number;
-    hash_path: any[];
+    hash_path: IMTNode[];
     root: IMTNode;
+    topic_id: bigint;
   }) => {
-    const { raw_wallet, indexes, hash_path, root } = merkleProof;
+    const { raw_wallet, indexes, hash_path, root, topic_id } = merkleProof;
     const circuitInputs = {
       raw_wallet: raw_wallet.toString(),
       indexes: indexes.toString(),
       hash_path: hash_path.map((sibling) => sibling.toString()),
       root: root.toString(),
+      topic_id: topic_id.toString(),
     };
 
     const merkleAllowlistCircuit = new Noir(
@@ -79,31 +96,70 @@ export const MerkleAllowlistZk = () => {
     try {
       const merkleProof = buildMerkleProof(allowList, wallet);
       const witness = await generateWitness(merkleProof);
-      console.log("witness", witness);
 
-      return offChainValidation(merkle_allowlist.bytecode, witness);
+      const isValid = await offChainValidation(
+        merkle_allowlist.bytecode,
+        witness,
+      );
+      return isValid ? witness : null;
     } catch (error) {
       console.error(error);
-      return false;
+      return null;
+    }
+  };
+
+  // Off-chain verification is the first layer: only once it passes do we build
+  // the EVM-targeted proof for verify(bytes, bytes32[]).
+  const buildOnChainProof = async (allowList: string[], wallet: string) => {
+    const witness = await verifyMembershipOffChain(allowList, wallet);
+    if (!witness) return null;
+
+    return generateOnChainProof(merkle_allowlist.bytecode, witness);
+  };
+
+  const handleGenerate = async () => {
+    setIsGenerating(true);
+    setOnChainProof(null);
+    setOffChainFailed(false);
+
+    try {
+      const result = await buildOnChainProof(
+        allowList,
+        "0x89F9E866B3dDb6146244b618B828EBe398D69149",
+      );
+      if (result) setOnChainProof(result);
+      else setOffChainFailed(true);
+    } finally {
+      setIsGenerating(false);
     }
   };
 
   return (
-    <div>
+    <div className="flex w-full flex-col gap-4">
       <div>MerkleAllowlistZk</div>
       <div>
         <button
-          onClick={async () => {
-            const isValid = await verifyMembershipOffChain(
-              allowList,
-              "0x89F9E866B3dDb6146244b618B828EBe398D69149",
-            );
-            console.log("isValid", isValid);
-          }}
+          onClick={handleGenerate}
+          disabled={isGenerating}
+          className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/20"
         >
-          Verify off chain
+          {isGenerating ? "Proving..." : "Generate on chain proof"}
         </button>
       </div>
+
+      {offChainFailed && (
+        <div className="text-sm text-red-600">
+          Off-chain verification failed — no on-chain params generated.
+        </div>
+      )}
+
+      {onChainProof && (
+        <OnChainProofParams
+          proof={onChainProof.proof}
+          publicInputs={onChainProof.publicInputs}
+          publicInputNames={publicInputNames}
+        />
+      )}
     </div>
   );
 };

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CompiledCircuit, Noir } from "@noir-lang/noir_js";
 import not_equal from "../circuits/not_equal.json";
 import { generateOnChainProof, offChainValidation } from "@/libs/noir";
+import { OnChainProofParams } from "./OnChainProofParams";
 
 type OnChainProof = Awaited<ReturnType<typeof generateOnChainProof>>;
 
@@ -78,54 +79,11 @@ export const NotEqualZk = () => {
       )}
 
       {onChainProof && (
-        <div className="flex flex-col gap-4 text-sm">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-3">
-              <span className="font-medium">_proof (bytes)</span>
-              <span className="text-zinc-500">
-                {(onChainProof.proof.length - 2) / 2} bytes
-              </span>
-              <button
-                onClick={() =>
-                  navigator.clipboard.writeText(onChainProof.proof)
-                }
-                className="rounded border border-black/20 px-2 py-0.5 text-xs dark:border-white/20"
-              >
-                Copy
-              </button>
-            </div>
-            <pre className="max-h-40 overflow-auto rounded bg-zinc-100 p-2 font-mono text-xs break-all whitespace-pre-wrap dark:bg-zinc-900">
-              {onChainProof.proof}
-            </pre>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-3">
-              <span className="font-medium">_publicInputs (bytes32[])</span>
-              <span className="text-zinc-500">
-                {onChainProof.publicInputs.length} items
-              </span>
-              <button
-                onClick={() =>
-                  navigator.clipboard.writeText(
-                    JSON.stringify(onChainProof.publicInputs),
-                  )
-                }
-                className="rounded border border-black/20 px-2 py-0.5 text-xs dark:border-white/20"
-              >
-                Copy
-              </button>
-            </div>
-            <ol className="max-h-40 overflow-auto rounded bg-zinc-100 p-2 font-mono text-xs dark:bg-zinc-900">
-              {onChainProof.publicInputs.map((publicInput, index) => (
-                <li key={index} className="break-all">
-                  <span className="text-zinc-500">{index}: </span>
-                  {publicInput}
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
+        <OnChainProofParams
+          proof={onChainProof.proof}
+          publicInputs={onChainProof.publicInputs}
+          publicInputNames={["y"]}
+        />
       )}
     </div>
   );
