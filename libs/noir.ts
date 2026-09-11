@@ -1,5 +1,18 @@
 import { Barretenberg, UltraHonkBackend } from "@aztec/bb.js";
-import { hexlify } from "ethers";
+import { hexlify, toUtf8Bytes } from "ethers";
+
+export const stringToBigInt = (input: string) => {
+  const bytes = toUtf8Bytes(input);
+  if (bytes.length > 31) throw new Error("Too long for a single Field");
+
+  const hex =
+    "0x" +
+    Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+  return BigInt(hex);
+};
 
 const createBackend = async (bytecode: string) => {
   const barretenbergAPI = await Barretenberg.new();
