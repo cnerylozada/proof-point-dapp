@@ -4,7 +4,8 @@ import { useMemo } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PangramHeader, type Difficulty } from "./PangramHeader";
+import type { Difficulty } from "@/services/pangram";
+import { PangramHeader } from "./PangramHeader";
 import { PangramWordHint } from "./PangramWordHint";
 import { shuffleLetters, validateWord } from "./utils";
 

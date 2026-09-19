@@ -1,6 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-
-export type Difficulty = "easy" | "normal" | "hard";
+import type { Difficulty } from "@/services/pangram";
 
 type PangramHeaderProps = {
   wordCount: number;
